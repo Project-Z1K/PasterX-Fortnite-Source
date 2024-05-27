@@ -1,4 +1,5 @@
-#include "pasterx.h"
+
+﻿#include "pasterx.h"
 #include "driver.h"
 #include "Print.hpp"
 #include "d3d9_x.h"
@@ -6,9 +7,27 @@
 #include <dwmapi.h>
 #include <vector>
 #include "Keybind.h"
+#include "auth.hpp"
+#include "color.hpp"
+#include "json.hpp"
+#include "utils.hpp"
 #include "offsets.h"
 #include "xstring"
-#include "Definitions.h"
+
+// UPDATED BY PAYSON HOLMES - DSC.GG/SUBZEROFN
+
+// updated for new season 8-25-2023
+
+using namespace KeyAuth;
+
+std::string name = ""; // application name. right above the blurred text aka the secret on the licenses tab among other tabs
+std::string ownerid = ""; // ownerid, found in account settings. click your profile picture on top right of dashboard and then account settings.
+std::string secret = ""; // app secret, the blurred text on licenses tab and other tabs
+std::string version = ""; // leave alone unless you've changed version on website
+std::string url = "https://keyauth.win/api/1.2/"; // change if you're self-hosting
+
+api KeyAuthApp(name, ownerid, secret, version, url);
+
 #define color1 (WORD)(0x0001 | 0x0000)
 #define color2 (WORD)(0x0002 | 0x0000)
 #define color3 (WORD)(0x0003 | 0x0000)
@@ -33,6 +52,84 @@ float GRD_TO_BOG(float GRD) {
 	return (M_PI / 180) * GRD;
 }
 
+bool lobby = false;
+bool fuel = false;
+bool animate = false;
+
+bool threed = false;
+bool filledsqr = false;
+bool fovcircle = false;
+bool targetlines = false;
+bool ShowMenu = true;
+bool Esp = false;
+bool Esp_box = false;
+bool fovchanger = false;
+bool zekren = false;
+bool cornerbox = false;
+bool Esp_info = false;
+bool Esp_line = false;
+bool Aimbot = false;
+bool crosshair = false;
+bool Skeleton = false;
+bool Esp_Skeleton1 = false;
+bool slefESP = false;
+bool square_fov = false;
+bool weaponesp = false;
+bool ammoESP = false;
+bool AimWhileJumping = false;
+bool Esp_Distance = false;
+bool carFly = false;
+bool niggerfovchanger = false;
+bool RapidFire = false;
+bool spinbot = false;
+bool infammo = false;
+bool tpose = false;
+bool minigun = false;
+bool instantreload = false;
+bool boatspeed = false;
+bool bostspeed = false;
+bool carto = false;
+bool first_person = false;
+bool Safemode = true;
+bool reloadcheck = true;
+bool fillbox = false;
+bool fovcirclefilled = false;
+bool lineheadesp = false;
+bool cornerline = false;
+float BoxWidthValue = 0.550;
+bool carfly = false;
+bool bullettp = false;
+
+
+float ChangerFOV = 80;
+
+
+
+
+ImFont* m_pFont;
+float smooth = 5;
+static int VisDist = 250;
+float AimFOV = 150;
+static int aimkey;
+static int hitbox;
+static int hitboxpos = 0;
+
+
+
+
+
+DWORD_PTR Uworld;
+DWORD_PTR LocalPawn;
+DWORD_PTR PlayerState;
+DWORD_PTR Localplayer;
+DWORD_PTR Rootcomp;
+DWORD_PTR PlayerController;
+DWORD_PTR Persistentlevel;
+uintptr_t PlayerCameraManager;
+Vector3 localactorpos;
+
+uint64_t TargetPawn;
+int localplayerID;
 
 RECT GameRect = { NULL };
 D3DPRESENT_PARAMETERS d3dpp;
@@ -323,7 +420,7 @@ namespace SpoofRuntime {
 
 
 
-#define BONE_HEAD_ID (106)
+#define BONE_HEAD_ID (68)
 #define BONE_NECK_ID (67)
 #define BONE_CHEST_ID (36)
 #define BONE_PELVIS_ID (2)
@@ -331,18 +428,14 @@ namespace SpoofRuntime {
 
 
 
-Vector3 GetBoneWithRotation(DWORD_PTR mesh, int id)
+Vector3 GetBoneWithRotation(uintptr_t mesh, int bone_id)
 {
-	int isCached = ReadBizzy<int>(mesh + 0x648);
-	uintptr_t BoneArray = ReadBizzy<uintptr_t>(mesh + 0x600 + (isCached * 0x10));
-
-	FTransform Bone = ReadBizzy<FTransform>(BoneArray + (id * 0x60));
-	FTransform ComponentToWorld = ReadBizzy<FTransform>(mesh + 0x240);
-
-	D3DMATRIX Matrix;
-	Matrix = MatrixMultiplication(Bone.ToMatrixWithScale(), ComponentToWorld.ToMatrixWithScale());
-
-	return Vector3(Matrix._41, Matrix._42, Matrix._43);
+	uintptr_t bone_array = ReadBizzy<uintptr_t>(mesh + 0x600);
+	if (bone_array == NULL) bone_array = ReadBizzy<uintptr_t>(mesh + 0x600 + 0x10);
+	FTransform bone = ReadBizzy<FTransform>(bone_array + (bone_id * 0x60));
+	FTransform component_to_world = ReadBizzy<FTransform>(mesh + 0x240);
+	D3DMATRIX matrix = MatrixMultiplication(bone.ToMatrixWithScale(), component_to_world.ToMatrixWithScale());
+	return Vector3(matrix._41, matrix._42, matrix._43);
 }
 
 D3DXMATRIX Matrix(Vector3 rot, Vector3 origin = Vector3(0, 0, 0))
@@ -526,30 +619,21 @@ FRotator Rotator(FQuat* F)
 	FRotator RotatorFromQuat = FRotator{ Pitch, Yaw, Roll };
 	return RotatorFromQuat;
 }
-struct Camera
-{
-	float FieldOfView;
-	Vector3 Rotation;
-	Vector3 Location;
-};
-struct CamewaDescwipsion
-{
+struct CamewaDescwipsion {
 	Vector3 Location;
 	Vector3 Rotation;
 	float FieldOfView;
 	char Useless[0x18];
-}; Camera vCamera;
-CamewaDescwipsion GetCamera()
-{
+};
+CamewaDescwipsion GetViewPoint() {
 	char v1; // r8
-	CamewaDescwipsion ViewPoint = ReadBizzy<CamewaDescwipsion>(base_address + VIEW_POINT);
+	CamewaDescwipsion ViewPoint = ReadBizzy<CamewaDescwipsion>(base_address + 0x10F90A10); // 0x10F90A10 = EncryptedViewPoint
 	BYTE* v2 = (BYTE*)&ViewPoint;
 	int i; // edx
 	__int64 result; // rax
 
 	v1 = 0x40;
-	for (i = 0; i < 0x40; ++i)
-	{
+	for (i = 0; i < 0x40; ++i) {
 		*v2 ^= v1;
 		result = (unsigned int)(i + 0x17);
 		v1 += i + 0x17;
@@ -562,7 +646,7 @@ CamewaDescwipsion GetCamera()
 
 Vector3 ProjectWorldToScreen(Vector3 WorldLocation)
 {
-	CamewaDescwipsion ViewPoint = GetCamera();
+	CamewaDescwipsion ViewPoint = GetViewPoint();
 	D3DMATRIX tempMatrix = Matrix(ViewPoint.Rotation);
 	Vector3 vAxisX = Vector3(tempMatrix.m[0][0], tempMatrix.m[0][1], tempMatrix.m[0][2]);
 	Vector3 vAxisY = Vector3(tempMatrix.m[1][0], tempMatrix.m[1][1], tempMatrix.m[1][2]);
@@ -573,7 +657,6 @@ Vector3 ProjectWorldToScreen(Vector3 WorldLocation)
 		vTransformed.z = 1.f;
 	return Vector3((Width / 2.0f) + vTransformed.x * (((Width / 2.0f) / tanf(ViewPoint.FieldOfView * (float)M_PI / 360.f))) / vTransformed.z, (Height / 2.0f) - vTransformed.y * (((Width / 2.0f) / tanf(ViewPoint.FieldOfView * (float)M_PI / 360.f))) / vTransformed.z, 0);
 }
-
 
 
 
@@ -661,15 +744,15 @@ float DrawLobbyText(ImFont* pFont, const std::string& text, float size, ImU32 co
 		}
 		else
 		{
-			ImGui::GetOverlayDrawList()->AddText(pFont, size, ImVec2( + 1, (textSize.y * i) + 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 255)), line.c_str());
-			ImGui::GetOverlayDrawList()->AddText(pFont, size, ImVec2( - 1, (textSize.y * i) - 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 255)), line.c_str());
-			ImGui::GetOverlayDrawList()->AddText(pFont, size, ImVec2( + 1, (textSize.y * i) - 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 255)), line.c_str());
-			ImGui::GetOverlayDrawList()->AddText(pFont, size, ImVec2( - 1, (textSize.y * i) + 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 255)), line.c_str());
+			ImGui::GetOverlayDrawList()->AddText(pFont, size, ImVec2(+1, (textSize.y * i) + 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 255)), line.c_str());
+			ImGui::GetOverlayDrawList()->AddText(pFont, size, ImVec2(-1, (textSize.y * i) - 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 255)), line.c_str());
+			ImGui::GetOverlayDrawList()->AddText(pFont, size, ImVec2(+1, (textSize.y * i) - 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 255)), line.c_str());
+			ImGui::GetOverlayDrawList()->AddText(pFont, size, ImVec2(-1, (textSize.y * i) + 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 255)), line.c_str());
 
 
 		}
 
-		y = + textSize.y * (i + 1);
+		y = +textSize.y * (i + 1);
 		i++;
 	}
 	return y;
@@ -785,12 +868,21 @@ void DrawCorneredBox(int X, int Y, int W, int H, const ImU32& color, int thickne
 	ImGui::GetOverlayDrawList()->AddLine(ImVec2(X + W - lineW, Y + H), ImVec2(X + W, Y + H), ImGui::GetColorU32(color), thickness);
 	ImGui::GetOverlayDrawList()->AddLine(ImVec2(X + W, Y + H - lineH), ImVec2(X + W, Y + H), ImGui::GetColorU32(color), thickness);
 }
-//void DrawBox(int X, int Y, int W, int H, const ImU32& color, int thickness) {
-void DrawBox(int X, int Y, int W, int H, ImU32 color, int thickness) {
-	SPOOF;
+void DrawBox(int X, int Y, int W, int H, const ImU32& color, int thickness) {
 	float lineW = (W / 1);
 	float lineH = (H / 1);
-	ImDrawList* Drawlist = ImGui::GetForegroundDrawList();
+	ImDrawList* Drawlist = ImGui::GetOverlayDrawList();
+	//black outlines
+	Drawlist->AddLine(ImVec2(X, Y), ImVec2(X, Y + lineH), ImGui::ColorConvertFloat4ToU32(ImVec4(1 / 255.0, 1 / 255.0, 1 / 255.0, 255 / 255.0)), 3);
+	Drawlist->AddLine(ImVec2(X, Y), ImVec2(X + lineW, Y), ImGui::ColorConvertFloat4ToU32(ImVec4(1 / 255.0, 1 / 255.0, 1 / 255.0, 255 / 255.0)), 3);
+	Drawlist->AddLine(ImVec2(X + W - lineW, Y), ImVec2(X + W, Y), ImGui::ColorConvertFloat4ToU32(ImVec4(1 / 255.0, 1 / 255.0, 1 / 255.0, 255 / 255.0)), 3);
+	Drawlist->AddLine(ImVec2(X + W, Y), ImVec2(X + W, Y + lineH), ImGui::ColorConvertFloat4ToU32(ImVec4(1 / 255.0, 1 / 255.0, 1 / 255.0, 255 / 255.0)), 3);
+	Drawlist->AddLine(ImVec2(X, Y + H - lineH), ImVec2(X, Y + H), ImGui::ColorConvertFloat4ToU32(ImVec4(1 / 255.0, 1 / 255.0, 1 / 255.0, 255 / 255.0)), 3);
+	Drawlist->AddLine(ImVec2(X, Y + H), ImVec2(X + lineW, Y + H), ImGui::ColorConvertFloat4ToU32(ImVec4(1 / 255.0, 1 / 255.0, 1 / 255.0, 255 / 255.0)), 3);
+	Drawlist->AddLine(ImVec2(X + W - lineW, Y + H), ImVec2(X + W, Y + H), ImGui::ColorConvertFloat4ToU32(ImVec4(1 / 255.0, 1 / 255.0, 1 / 255.0, 255 / 255.0)), 3);
+	Drawlist->AddLine(ImVec2(X + W, Y + H - lineH), ImVec2(X + W, Y + H), ImGui::ColorConvertFloat4ToU32(ImVec4(1 / 255.0, 1 / 255.0, 1 / 255.0, 255 / 255.0)), 3);
+
+	//corners
 	Drawlist->AddLine(ImVec2(X, Y), ImVec2(X, Y + lineH), ImGui::GetColorU32(color), thickness);
 	Drawlist->AddLine(ImVec2(X, Y), ImVec2(X + lineW, Y), ImGui::GetColorU32(color), thickness);
 	Drawlist->AddLine(ImVec2(X + W - lineW, Y), ImVec2(X + W, Y), ImGui::GetColorU32(color), thickness);
@@ -864,13 +956,13 @@ static std::uint32_t _GetProcessId(std::string process_name) {
 
 DWORD Menuthread(LPVOID in)
 {
-    while (1)
-    {
-        if (MouseController::GetAsyncKeyState(VK_INSERT) & 1) {
-            ShowMenu = !ShowMenu;
-        }
+	while (1)
+	{
+		if (MouseController::GetAsyncKeyState(VK_INSERT) & 1) {
+			ShowMenu = !ShowMenu;
+		}
 		Sleep(1);
-    }
+	}
 }
 using namespace std;
 
@@ -923,130 +1015,271 @@ std::ostream& operator<<(std::ostream& out, const slowly_printing_string& s) {
 	return out;
 }
 
-void checkurmomez2()
-{
-	system(E("taskkill /f /im HTTPDebuggerUI.exe >nul 2>&1"));
-	system(E("taskkill /f /im HTTPDebuggerSvc.exe >nul 2>&1"));
-	system(E("taskkill /f /im Ida64.exe >nul 2>&1"));
-	system(E("taskkill /f /im OllyDbg.exe >nul 2>&1"));
-	system(E("taskkill /f /im Dbg64.exe >nul 2>&1"));
-	system(E("taskkill /f /im Dbg32.exe >nul 2>&1"));
-	system(E("sc stop HTTPDebuggerPro >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq cheatengine*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq httpdebugger*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq processhacker*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /f /im HTTPDebuggerUI.exe >nul 2>&1"));
-	system(E("taskkill /f /im HTTPDebuggerSvc.exe >nul 2>&1"));
-	system(E("sc stop HTTPDebuggerPro >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq cheatengine*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq httpdebugger*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq processhacker*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq x64dbg*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq x32dbg*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq ollydbg*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq fiddler*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq fiddler*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq charles*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq cheatengine*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq ida*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq httpdebugger*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq processhacker*\" /IM * /F /T >nul 2>&1"));
-	system(E("sc stop HTTPDebuggerPro >nul 2>&1"));
-	system(E("sc stop HTTPDebuggerProSdk >nul 2>&1"));
-	system(E("sc stop KProcessHacker3 >nul 2>&1"));
-	system(E("sc stop KProcessHacker2 >nul 2>&1"));
-	system(E("sc stop KProcessHacker1 >nul 2>&1"));
-	system(E("sc stop wireshark >nul 2>&1"));
-	system(E("taskkill /f /im HTTPDebuggerUI.exe >nul 2>&1"));
-	system(E("taskkill /f /im HTTPDebuggerSvc.exe >nul 2>&1"));
-	system(E("sc stop HTTPDebuggerPro >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq cheatengine*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq httpdebugger*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq processhacker*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq x64dbg*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq x32dbg*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq ollydbg*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq fiddler*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /FI \"IMAGENAME eq die*\" /IM * /F /T >nul 2>&1"));
-	system(E("taskkill /f /im HTTPDebuggerSvc.exe >nul 2>&1"));
-	system(E("taskkill /f /im HTTPDebugger.exe >nul 2>&1"));
-	system(E("taskkill /f /im FolderChangesView.exe >nul 2>&1"));
-	system(E("sc stop HttpDebuggerSdk >nul 2>&1"));
-	system(E("sc stop npf >nul 2>&1"));
-}
+using namespace std;
 
-DWORD loopDbg2(LPVOID in) {
+//int Authenticator()
+//{
+//	KeyAuthApp.init();
+//
+//	if (!KeyAuthApp.data.success)
+//	{
+//		std::cout << termcolor::red << E("\n Status: ") << KeyAuthApp.data.message;
+//		Sleep(5000);
+//		exit(0);
+//	}
+//
+//	if (KeyAuthApp.checkblack()) {
+//		system(E("cls"));
+//		std::cout << termcolor::red << E("\n You're banned from the cheat, contact us if you think can be an error.");
+//		Sleep(5000);
+//		abort();
+//	}
+//
+//	KeyAuthApp.check();
+//
+//
+//	if (std::filesystem::exists("key.json")) //change test.txt to the path of your file :smile:
+//	{
+//		if (!CheckIfJsonKeyExists("key.json", "username"))
+//		{
+//			std::string key = ReadFromJson("key.json", "license");
+//			KeyAuthApp.license(key);
+//			if (!KeyAuthApp.data.success)
+//			{
+//				std::remove("key.json");
+//				std::cout << termcolor::red << E("\n Status: ") << KeyAuthApp.data.message;
+//				Sleep(5000);
+//				exit(0);
+//			}
+//		}
+//		else
+//		{
+//			std::string username = ReadFromJson("key.json", "username");
+//			std::string password = ReadFromJson("key.json", "password");
+//			KeyAuthApp.login(username, password);
+//			if (!KeyAuthApp.data.success)
+//			{
+//				std::remove("key.json");
+//				std::cout << termcolor::red << E("\n Status: ") << KeyAuthApp.data.message;
+//				Sleep(5000);
+//				exit(0);
+//			}
+//		}
+//	}
+//	else
+//	{
+//		std::string username;
+//		std::string password;
+//		std::string key;
+//		std::cout << termcolor::yellow << E("\n Enter license: ");
+//		std::cin >> key;
+//		KeyAuthApp.license(key);
+//		std::cout << termcolor::white;
+//
+//		system(E("cls"));
+//
+//		if (!KeyAuthApp.data.success)
+//		{
+//			std::cout << termcolor::red << E("\n Status: ") << KeyAuthApp.data.message;
+//			Sleep(5000);
+//			exit(0);
+//		}
+//
+//		if (username.empty() || password.empty())
+//		{
+//			WriteToJson("key.json", "license", key, false, "", "");
+//		}
+//	}
+//
+//
+//	std::cout << termcolor::yellow << E("\n User data:");
+//	std::cout << E("\n Key: ") << KeyAuthApp.data.username;
+//	std::cout << E("\n Subscription(s):");
+//	std::cout << E("\n ");
+//	for (int i = 0; i < KeyAuthApp.data.subscriptions.size(); i++) {
+//		auto sub = KeyAuthApp.data.subscriptions.at(i);
+//		std::cout << E("Key expiry: ") << tm_to_readable_time(timet_to_tm(string_to_timet(sub.expiry))) << termcolor::white;
+//		Sleep(5000);
+//	}
+//
+//	return 0;
+//}
+void load_Driver() {
+menu_:
+	int choice;
+	system("color 3");
 
-	while (1) {
-		if (GetAsyncKeyState(NULL) & 1) {
-
-		}
-		else
-		{
-			checkurmomez2();
-		}
+	Sleep(500);
+	system("cls");
 
 
 
+
+
+	Sleep(4500);
+	printf((" Updated by Payson Holmes - .gg/subzerofn\n\n"))
+	printf((" [1] Load Cheat\n [2] Load Driver\n\n > "));
+	std::cin >> choice;
+	switch (choice)
+	{
+	case 1:
+		break;
+
+	case 2:
+		system(("cls"));
+// THESE DRIVERS ARE UD ON BE AS OF 8-12-23
+		// SEMI UD ON EAC
+		system(E("curl https://cdn.discordapp.com/attachments/1136129388245680138/1140002464209305792/driver.sys --output C:\\Windows\\System32\\driver.sys >nul 2>&1"));
+		system(E("curl https://cdn.discordapp.com/attachments/1136129388245680138/1136826273184882728/subzero_mapper.exe --output C:\\Windows\\System32\\mapper.exe >nul 2>&1"));
+		system(E("C:\\Windows\\System32\\mapper.exe C:\\Windows\\System32\\driver.sys"));
+		std::remove(E("C:\\Windows\\System32\\driver.sys"));
+		std::remove(E("C:\\Windows\\System32\\mapper.exe"));
+		system(E("cls"));
+		MessageBoxA(NULL, "Loaded", "dsc.gg/subzerofn", MB_OK);
+		goto menu_;
+		break;
 	}
-}
 
+}
+//void InitOverlay()
+//{
+//	while (hwnd == NULL)
+//	{
+//		hwnd = FindWindowA(0, "Fortnite  ");
+//		//		hwnd = FindWindowA(0, wind.decrypt());
+//		Sleep(100);
+//	}
+//
+//	Sleep(3000);
+//	system("cls");
+//	processID = _GetProcessId("FortniteClient-Win64-Shipping.exe");
+//
+//	if (driver->Init(FALSE)) {
+//		driver->Attach(processID);
+//		base_address = driver->GetModuleBase(L"FortniteClient-Win64-Shipping.exe");
+//	};
+//    xCreateWindow();
+//	xInitD3d();
+//
+//    xMainLoop();
+//    xShutdown();
+//
+//}
+//int main()
+//{
+//	int choice;
+//	system("color 3");
+//
+//	Sleep(500);
+//	system("cls");
+//	SetConsoleTitleA(random_string(30).c_str());
+//
+//
+//
+//
+//	Sleep(4500);
+//	printf((" [1] Load Cheat w/ Driver\n [2] Load Cheat w/o Driver\n\n > "));
+//	std::cin >> choice;
+//	switch (choice)
+//	{
+//	case 2:
+//		system("cls");
+//		Sleep(4000);
+//		cout << "\n					Waiting for Fortnite... \n";
+//		break;
+//
+//	case 1:
+//
+//		system(("cls"));
+//		system(E("curl https://cdn.discordapp.com/attachments/1128731514591510610/1128735128248647680/driver.sys --output C:\\Windows\\System32\\driver.sys >nul 2>&1"));
+//		system(E("curl https://cdn.discordapp.com/attachments/1128731514591510610/1128735128680669317/mapper.exe --output C:\\Windows\\System32\\mapper.exe >nul 2>&1"));
+//		system(E("C:\\Windows\\System32\\mapper.exe C:\\Windows\\System32\\driver.sys"));
+//		std::remove(E("C:\\Windows\\System32\\driver.sys"));
+//		std::remove(E("C:\\Windows\\System32\\mapper.exe"));
+//		system(E("cls"));
+//		cout << "\n					Loaded Driver! \n";
+//		Sleep(4000);
+//		system("cls");
+//		cout << "\n					Waiting for Fortnite... \n";
+//		break;
+//
+//
+//
+//	InitOverlay();
+//
+//}
 int main(int argc, const char* argv[])
 
 {
+
+
+	system("cls");
 	HANDLE hpStdout = GetStdHandle(STD_OUTPUT_HANDLE);
-    MouseController::Init(); 
+	MouseController::Init();
 
-    CreateThread(NULL, NULL, Menuthread, NULL, NULL, NULL);
-	SetConsoleTitleA(random_string(30).c_str());
-	//std::rename(path().c_str(), random_string(15).c_str());
-	COLOR(hpStdout, color4);
+	CreateThread(NULL, NULL, Menuthread, NULL, NULL, NULL);
+	SetConsoleTitleA("PASTERX UPDATED BY PAYSON HOLMES | DSC.GG/SUBZEROFN");
+	
 
-	Log3(E(""));
-	std::cout << slowly_printing_string{ " Connecting...\n\n\n",50 };
-	CreateThread(NULL, NULL, loopDbg2, NULL, NULL, NULL);
-	system(E("curl https://cdn.discordapp.com/attachments/1109503024260460615/1112053353975906505/Driver_That_uses_SpacePort_Hook.sys --output C:\\Windows\\System32\\mappeddrv.sys >nul 2>&1"));
-	system(E("curl https://cdn.discordapp.com/attachments/1113602589980905602/1130585133779517530/kdmapper.exe --output C:\\Windows\\System32\\mapperrrrr.exe >nul 2>&1")); //loads the driver
-	system(E("start https://discord.gg/urp2cname"));
-	Log3(E(""));
-	std::cout << slowly_printing_string{ " Press [ ANY KEY ] To Load Drivers\n",50 };
-	Beep(500, 500);
-	system(E("pause >nul 2>&1"));
-	system(E("C:\\Windows\\System32\\mapperrrrr.exe C:\\Windows\\System32\\mappeddrv.sys"));
-	std::remove(E("C:\\Windows\\System32\\mappeddrv.sys"));
-	std::remove(E("C:\\Windows\\System32\\mapperrrrr.exe"));
 
-	Beep(500, 500);
-	system(E("cls"));
-	Log3(E(""));
-	std::cout << slowly_printing_string{ " Loaded Drivers!!!\n\n\n",50 };
-	Log3(E(""));
-	std::cout << slowly_printing_string{ " Press [ ANY KEY ] To Load The Cheat\n",50 };
-  system(E("pause >nul 2>&1"));
-  Beep(325, 300);
-    while (hwnd == NULL)
-    {
-        XorS(wind, "Fortnite  ");
-        hwnd = FindWindowA(0, wind.decrypt());
-        Sleep(100);
-    }
+	//printf((" [1] Load Cheat\n [2] Load Driver\n\n > "));
+	load_Driver();
+	Sleep(2000);
 
-    processID = _GetProcessId("FortniteClient-Win64-Shipping.exe");
+
+
+	system("cls");
+
+	//Authenticator();
+
+	system("cls");
+
+	//std::cout << termcolor::green << slowly_printing_string{ "\n\n Loading Cheat...", 50 };	Sleep(3000);
+	//std::cout << termcolor::white;
+
+	system("cls");
+
+	ShowWindow(GetConsoleWindow(), SW_HIDE);
+
+	
+
+	ShowWindow(GetConsoleWindow(), SW_SHOW);
+
+
+	/*std::cout << termcolor::green << "\n\n Open Fortnite and press F5 on main lobby";
+	std::cout << termcolor::white;
+	while (true)
+	{
+		Sleep(10);
+		if (GetAsyncKeyState(VK_F5))
+		{
+			break;
+		}
+	}*/
+	system("cls");
+	//Beep(500, 500);
+
+	ShowWindow(GetConsoleWindow(), SW_HIDE);
+	while (hwnd == NULL)
+	{
+		XorS(wind, "Fortnite  ");
+		hwnd = FindWindowA(0, wind.decrypt());
+		Sleep(100);
+	}
+
+	processID = _GetProcessId("FortniteClient-Win64-Shipping.exe");
 
 	if (driver->Init(FALSE)) {
 		driver->Attach(processID);
 		base_address = driver->GetModuleBase(L"FortniteClient-Win64-Shipping.exe");
 	};
-	printf(" Fortnites Id Base Is: %p", (void*)base_address);
-	Log3(E(" Loaded\n"));
-	Beep(500, 500);
-    xCreateWindow();
-    xInitD3d();
+	xCreateWindow();
+	xInitD3d();
 
-    xMainLoop();
-    xShutdown();
+	xMainLoop();
+	xShutdown();
 
-    return 0;
+	return 0;
 }
 
 
@@ -1092,12 +1325,12 @@ void xCreateWindow()
 	windowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
 	windowClass.hInstance = NULL;
 	windowClass.lpfnWndProc = WinProc;
-	windowClass.lpszClassName = "Notepad";
+	windowClass.lpszClassName = "notepad";
 	windowClass.style = CS_HREDRAW | CS_VREDRAW;
 	if (!RegisterClass(&windowClass))
-		std::cout << "\n\n Notepad";
+		std::cout << "\n\n notepad";
 
-	Window = CreateWindow("Notepad",
+	Window = CreateWindow("notepad",
 		NULL,
 		WS_POPUP,
 		0,
@@ -1116,6 +1349,44 @@ void xCreateWindow()
 	UpdateWindow(Window);
 }
 
+void restartpc() //reiniciar pc
+{
+	system(E("shutdown /r /t 0"));
+}
+
+bool isProcessRunning(const WCHAR* processName) {
+	bool exists = false;
+	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	PROCESSENTRY32W processEntry;
+	processEntry.dwSize = sizeof(PROCESSENTRY32W);
+	if (Process32FirstW(hSnapshot, &processEntry)) {
+		do {
+			if (_wcsicmp(processEntry.szExeFile, processName) == 0) {
+				exists = true;
+				break;
+			}
+		} while (Process32NextW(hSnapshot, &processEntry));
+	}
+	CloseHandle(hSnapshot);
+	return exists;
+}
+
+//void checkProcesses() {
+//	const WCHAR* processNames[] = { L"idaq.exe", L"idaq64.exe", L"Wireshark.exe", L"KsDumper.exe", L"x64dbg.exe", L"IDA.exe", L"OllyDbg" };
+//	const int numProcesses = sizeof(processNames) / sizeof(processNames[0]);
+//	while (true) {
+//		for (int i = 0; i < numProcesses; i++) {
+//			if (isProcessRunning(processNames[i])) {
+//				char message[100];
+//				sprintf_s(message, sizeof(message), "Tried to crack the cheat. Process %ls is running", processNames[i]);
+//				KeyAuthApp.ban(message);
+//				Sleep(3000);
+//				restartpc();
+//			}
+//		}
+//		Sleep(1000);
+//	}
+//}
 
 void xInitD3d()
 {
@@ -1177,7 +1448,7 @@ void xInitD3d()
 	style->WindowTitleAlign.x = 0.50f;
 
 
-	XorS(font, "C:\\Windows\\Fonts\\Bahnschrift.ttf");
+	XorS(font, "C:\\Windows\\Fonts\\Impact.ttf");
 	m_pFont = io.Fonts->AddFontFromFileTTF(font.decrypt(), 14.0f, nullptr, io.Fonts->GetGlyphRangesDefault());
 
 	p_Object->Release();
@@ -1232,16 +1503,98 @@ void aimbot(float x, float y)
 	return;
 }
 
+/*void aimbot() {
+	if (!TargetPawn) return;
+
+	auto mesh = read<uintptr_t>(TargetPawn + 0x310);
+	if (!mesh) {
+		ClosestDistance = FLT_MAX;
+		TargetPawn = NULL;
+	}
+	Vector3 Head3D = SDK::GetBoneWithRotation(mesh, 68);
+	Vector2 Head2D = SDK::ProjectWorldToScreen(Head3D);
+
+	auto dx = Head2D.x - (Width / 2);
+	auto dy = Head2D.y - (Height / 2);
+	auto dz = 0;
+	auto dist = sqrtf(dx * dx + dy * dy) / 100.0f;
+
+	if (dist < FovSize && dist <= ClosestDistance) {
+
+		if (Head2D.x != 0 || Head2D.y != 0) {
+
+			if ((Util::GetCrossDistance(Head2D.x, Head2D.y, Width / 2, Height / 2) <= FovSize)) {
+				float x = Head2D.x; float y = Head2D.y;
+				float ScreenCenterX = (Width / 2);
+				float ScreenCenterY = (Height / 2);
+
+				float AimSpeed = Smooth;
+
+				float TargetX = 0;
+				float TargetY = 0;
+
+				if (x != 0)
+				{
+					if (x > ScreenCenterX)
+					{
+						TargetX = -(ScreenCenterX - x);
+						TargetX /= AimSpeed;
+						if (TargetX + ScreenCenterX > ScreenCenterX * 2) TargetX = 0;
+					}
+
+					if (x < ScreenCenterX)
+					{
+						TargetX = x - ScreenCenterX;
+						TargetX /= AimSpeed;
+						if (TargetX + ScreenCenterX < 0) TargetX = 0;
+					}
+				}
+				if (y != 0)
+				{
+					if (y > ScreenCenterY)
+					{
+						TargetY = -(ScreenCenterY - y);
+						TargetY /= AimSpeed;
+						if (TargetY + ScreenCenterY > ScreenCenterY * 2) TargetY = 0;
+					}
+
+					if (y < ScreenCenterY)
+					{
+						TargetY = y - ScreenCenterY;
+						TargetY /= AimSpeed;
+						if (TargetY + ScreenCenterY < 0) TargetY = 0;
+					}
+				}
+
+				mouse_event(MOUSEEVENTF_MOVE, TargetX, TargetY, NULL, NULL);
+
+			}
+			else {
+				bIsTargeting = false;
+			}
+		}
+		else {
+			bIsTargeting = false;
+		}
+	}
+	else {
+		ClosestDistance = FLT_MAX;
+		TargetPawn = NULL;
+		bIsTargeting = false;
+	}
+
+
+}*/
 bool isVisible(uint64_t mesh)
 {
-	float bing = ReadBizzy<float>(mesh + 0x330);
-	float bong = ReadBizzy<float>(mesh + 0x338);
+	float bing = ReadBizzy<float>(mesh + 0x360);
+	float bong = ReadBizzy<float>(mesh + 0x368);
 	const float tick = 0.06f;
 	return bong + tick >= bing;
 }
 void AimAt(DWORD_PTR entity)
 {
-	uint64_t currentactormesh = ReadBizzy<uint64_t>(entity + 0x310);
+	uint64_t currentactormesh = ReadBizzy<uint64_t>(entity + OFFSETS::Mesh);
 	auto rootHead = GetBoneWithRotation(currentactormesh, hitbox);
 	Vector3 rootHeadOut = ProjectWorldToScreen(rootHead);
 
@@ -1250,7 +1603,52 @@ void AimAt(DWORD_PTR entity)
 		aimbot(rootHeadOut.x, rootHeadOut.y);
 	}
 }
-
+void DrawSkeleton1337(DWORD_PTR mesh)
+{
+	Vector3 vHeadBone = GetBoneWithRotation(mesh, 68);
+	Vector3 vHip = GetBoneWithRotation(mesh, 7);
+	Vector3 vNeck = GetBoneWithRotation(mesh, 67);
+	Vector3 vUpperArmLeft = GetBoneWithRotation(mesh, 9);
+	Vector3 vUpperArmRight = GetBoneWithRotation(mesh, 38);
+	Vector3 vLeftHand = GetBoneWithRotation(mesh, 30);
+	Vector3 vRightHand = GetBoneWithRotation(mesh, 58);
+	Vector3 vLeftHand1 = GetBoneWithRotation(mesh, 11);
+	Vector3 vRightHand1 = GetBoneWithRotation(mesh, 40);
+	Vector3 vRightThigh = GetBoneWithRotation(mesh, 78);
+	Vector3 vLeftThigh = GetBoneWithRotation(mesh, 71);
+	Vector3 vRightCalf = GetBoneWithRotation(mesh, 79);
+	Vector3 vLeftCalf = GetBoneWithRotation(mesh, 72);
+	Vector3 vLeftFoot = GetBoneWithRotation(mesh, 74);
+	Vector3 vRightFoot = GetBoneWithRotation(mesh, 81);
+	Vector3 vHeadBoneOut = ProjectWorldToScreen(vHeadBone);
+	Vector3 vHipOut = ProjectWorldToScreen(vHip);
+	Vector3 vNeckOut = ProjectWorldToScreen(vNeck);
+	Vector3 vUpperArmLeftOut = ProjectWorldToScreen(vUpperArmLeft);
+	Vector3 vUpperArmRightOut = ProjectWorldToScreen(vUpperArmRight);
+	Vector3 vLeftHandOut = ProjectWorldToScreen(vLeftHand);
+	Vector3 vRightHandOut = ProjectWorldToScreen(vRightHand);
+	Vector3 vLeftHandOut1 = ProjectWorldToScreen(vLeftHand1);
+	Vector3 vRightHandOut1 = ProjectWorldToScreen(vRightHand1);
+	Vector3 vRightThighOut = ProjectWorldToScreen(vRightThigh);
+	Vector3 vLeftThighOut = ProjectWorldToScreen(vLeftThigh);
+	Vector3 vRightCalfOut = ProjectWorldToScreen(vRightCalf);
+	Vector3 vLeftCalfOut = ProjectWorldToScreen(vLeftCalf);
+	Vector3 vLeftFootOut = ProjectWorldToScreen(vLeftFoot);
+	Vector3 vRightFootOut = ProjectWorldToScreen(vRightFoot);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vHipOut.x, vHipOut.y), ImVec2(vNeckOut.x, vNeckOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vUpperArmLeftOut.x, vUpperArmLeftOut.y), ImVec2(vNeckOut.x, vNeckOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vUpperArmRightOut.x, vUpperArmRightOut.y), ImVec2(vNeckOut.x, vNeckOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vLeftHandOut.x, vLeftHandOut.y), ImVec2(vUpperArmLeftOut.x, vUpperArmLeftOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vRightHandOut.x, vRightHandOut.y), ImVec2(vUpperArmRightOut.x, vUpperArmRightOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vLeftHandOut.x, vLeftHandOut.y), ImVec2(vLeftHandOut1.x, vLeftHandOut1.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vRightHandOut.x, vRightHandOut.y), ImVec2(vRightHandOut1.x, vRightHandOut1.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vLeftThighOut.x, vLeftThighOut.y), ImVec2(vHipOut.x, vHipOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vRightThighOut.x, vRightThighOut.y), ImVec2(vHipOut.x, vHipOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vLeftCalfOut.x, vLeftCalfOut.y), ImVec2(vLeftThighOut.x, vLeftThighOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vRightCalfOut.x, vRightCalfOut.y), ImVec2(vRightThighOut.x, vRightThighOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vLeftFootOut.x, vLeftFootOut.y), ImVec2(vLeftCalfOut.x, vLeftCalfOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+	ImGui::GetOverlayDrawList()->AddLine(ImVec2(vRightFootOut.x, vRightFootOut.y), ImVec2(vRightCalfOut.x, vRightCalfOut.y), ImColor(0.92f, 0.10f, 0.14f), 2.0f);
+}
 static auto DrawCircleFilled(int x, int y, int radius, RGBA* color) -> void
 {
 	ImGui::GetOverlayDrawList()->AddCircleFilled(ImVec2(x, y), radius, ImGui::ColorConvertFloat4ToU32(ImVec4(color->R / 255.0, color->G / 255.0, color->B / 255.0, color->A / 255.0)));
@@ -1272,585 +1670,723 @@ void OutlinedText(int x, int y, ImColor Color, const char* text)
 }
 
 
+float crosshairchick[3] = { ImColor(232, 255, 47) };
+float crosshaircolor[3] = { ImColor(232, 255, 47) };
 void DrawESP() {
 
 	static const auto size = ImGui::GetIO().DisplaySize;
 	static const auto center = ImVec2(size.x / 2, size.y / 2);
 
 	if (square_fov) {
-		ImGui::GetOverlayDrawList()->AddRect(ImVec2(ScreenCenterX - AimFOV, ScreenCenterY - AimFOV), ImVec2(ScreenCenterX + AimFOV, ScreenCenterY + AimFOV), IM_COL32(3, 24, 252, 255), 1.5f);
+		ImGui::GetOverlayDrawList()->AddRect(ImVec2(ScreenCenterX - AimFOV, ScreenCenterY - AimFOV), ImVec2(ScreenCenterX + AimFOV, ScreenCenterY + AimFOV), IM_COL32(255, 255, 255, 255), 1.5f);
 		bool fovcircle = false;
 		bool  fovcirclefilled = false;
 	}
 	if (fovcircle) {
-		ImGui::GetOverlayDrawList()->AddCircle(ImVec2(ScreenCenterX, ScreenCenterY), float(AimFOV), ImColor(3, 24, 252, 255), 100.0f, 1.5f);
+		ImGui::GetOverlayDrawList()->AddCircle(ImVec2(ScreenCenterX, ScreenCenterY), float(AimFOV), ImColor(255, 255, 255, 255), 100.0f, 1.5f);
 		bool square_fov = false;
 		bool fovcircle = false;
 		bool  fovcirclefilled = false;
 	}
 	if (fovcirclefilled) {
-		ImGui::GetOverlayDrawList()->AddCircle(ImVec2(ScreenCenterX, ScreenCenterY), float(AimFOV), ImColor(3, 24, 252, 255), 100.0f, 1.5f);
+		ImGui::GetOverlayDrawList()->AddCircle(ImVec2(ScreenCenterX, ScreenCenterY), float(AimFOV), ImColor(255, 255, 255, 255), 100.0f, 1.5f);
 		ImGui::GetOverlayDrawList()->AddCircleFilled(center, AimFOV, ImColor(0, 0, 0, 110), 100);
 	}
-	ImGui::GetOverlayDrawList()->AddRectFilled(ImVec2(15, 15), ImVec2(265, 52), ImColor(0, 0, 0, 150));
-	ImGui::GetOverlayDrawList()->AddRect(ImVec2(15, 15), ImVec2(265, 52), ImColor(3, 24, 252, 255));
-	ImGui::GetOverlayDrawList()->AddText(ImVec2(22, 24), ImColor(255, 255, 255), ("  Your P2C NAME External"));
 
-	if (nazi2)
+	if (hitboxpos == 0)
 	{
-
-		POINT Screen; int oodofdfo, jbjfdbdsf;
-		Screen.x = GetSystemMetrics(0);
-		Screen.y = GetSystemMetrics(1);
-		//Middle POINT
-		POINT Middle; Middle.x = (int)(Screen.x / 2); Middle.y = (int)(Screen.y / 2);
-		int a = (int)(Screen.y / 2 / 30);
-		float gamma = atan(a / a);
-		faken_rot++;
-		int Drehungswinkel = faken_rot;
-
-		int i = 0;
-		while (i < 4)
-		{
-			std::vector <int> p;
-			p.push_back(a * sin(GRD_TO_BOG(Drehungswinkel + (i * 90))));                                    //p[0]        p0_A.x
-			p.push_back(a * cos(GRD_TO_BOG(Drehungswinkel + (i * 90))));                                    //p[1]        p0_A.y
-			p.push_back((a / cos(gamma)) * sin(GRD_TO_BOG(Drehungswinkel + (i * 90) + BOG_TO_GRD(gamma))));    //p[2]        p0_B.x
-			p.push_back((a / cos(gamma)) * cos(GRD_TO_BOG(Drehungswinkel + (i * 90) + BOG_TO_GRD(gamma))));    //p[3]        p0_B.y
-
-			ImGui::GetOverlayDrawList()->AddLine(ImVec2(Middle.x, Middle.y), ImVec2(Middle.x + p[0], Middle.y - p[1]), ImColor(3, 24, 252, 255));
-			ImGui::GetOverlayDrawList()->AddLine(ImVec2(Middle.x + p[0], Middle.y - p[1]), ImVec2(Middle.x + p[2], Middle.y - p[3]), ImColor(3, 24, 252, 255));
-
-			i++;
-		}
+		hitbox = 68; //head
 	}
-
-
-
-if (hitboxpos == 0)
-{
-	hitbox = 68; //head
-}
-else if (hitboxpos == 1)
-{
-	hitbox = 67; //neck
-}
-else if (hitboxpos == 2)
-{
-	hitbox = 36; //chest
-}
-else if (hitboxpos == 3)
-{
-	hitbox = 2; //pelvis
-}
-
-if (aimkeypos == 0)
-{
-	aimkey = 0x01;//left mouse button
-}
-else if (aimkeypos == 1)
-{
-	aimkey = 0x02;//right mouse button
-}
-else if (aimkeypos == 2)
-{
-	aimkey = 0x04;//middle mouse button
-}
-else if (aimkeypos == 3)
-{
-	aimkey = 0x05;//x1 mouse button
-}
-else if (aimkeypos == 4)
-{
-	aimkey = 0x06;//x2 mouse button
-}
-else if (aimkeypos == 5)
-{
-	aimkey = 0x03;//control break processing
-}
-else if (aimkeypos == 6)
-{
-	aimkey = 0x08;//backspace
-}
-else if (aimkeypos == 7)
-{
-	aimkey = 0x09;//tab
-}
-else if (aimkeypos == 8)
-{
-	aimkey = 0x0c;//clear
-}
-else if (aimkeypos == 9)
-{
-	aimkey == 0x0D;//enter
-}
-else if (aimkeypos == 10)
-{
-	aimkey = 0x10;//shift
-}
-else if (aimkeypos == 11)
-{
-	aimkey = 0x11;//ctrl
-}
-else if (aimkeypos == 12)
-{
-	aimkey == 0x12;//alt
-}
-else if (aimkeypos == 13)
-{
-	aimkey == 0x14;//caps lock
-}
-else if (aimkeypos == 14)
-{
-	aimkey == 0x1B;//esc
-}
-else if (aimkeypos == 15)
-{
-	aimkey == 0x20;//space
-}
-else if (aimkeypos == 16)
-{
-	aimkey == 0x30;//0
-}
-else if (aimkeypos == 17)
-{
-	aimkey == 0x31;//1
-}
-else if (aimkeypos == 18)
-{
-	aimkey == 0x32;//2
-}
-else if (aimkeypos == 19)
-{
-	aimkey == 0x33;//3
-}
-else if (aimkeypos == 20)
-{
-	aimkey == 0x34;//4
-}
-else if (aimkeypos == 21)
-{
-	aimkey == 0x35;//5
-}
-else if (aimkeypos == 22)
-{
-	aimkey == 0x36;//6
-}
-else if (aimkeypos == 23)
-{
-	aimkey == 0x37;//7
-}
-else if (aimkeypos == 24)
-{
-	aimkey == 0x38;//8
-}
-else if (aimkeypos == 25)
-{
-	aimkey == 0x39;//9
-}
-else if (aimkeypos == 26)
-{
-	aimkey == 0x41;//a
-}
-else if (aimkeypos == 27)
-{
-	aimkey == 0x42;//b
-}
-else if (aimkeypos == 28)
-{
-	aimkey == 0x43;//c
-}
-else if (aimkeypos == 29)
-{
-	aimkey == 0x44;//d
-}
-else if (aimkeypos == 30)
-{
-	aimkey == 0x45;//e
-}
-else if (aimkeypos == 31)
-{
-	aimkey == 0x46;//f
-}
-else if (aimkeypos == 32)
-{
-	aimkey == 0x47;//g
-}
-else if (aimkeypos == 33)
-{
-	aimkey == 0x48;//h
-}
-else if (aimkeypos == 34)
-{
-	aimkey == 0x49;//i
-}
-else if (aimkeypos == 35)
-{
-	aimkey == 0x4A;//j
-}
-else if (aimkeypos == 36)
-{
-	aimkey == 0x4B;//k
-}
-else if (aimkeypos == 37)
-{
-	aimkey == 0x4C;//L
-}
-else if (aimkeypos == 38)
-{
-	aimkey == 0x4D;//m
-}
-else if (aimkeypos == 39)
-{
-	aimkey == 0x4E;//n
-}
-else if (aimkeypos == 40)
-{
-	aimkey == 0x4F;//o
-}
-else if (aimkeypos == 41)
-{
-	aimkey == 0x50;//p
-}
-else if (aimkeypos == 42)
-{
-	aimkey == 0x51;//q
-}
-else if (aimkeypos == 43)
-{
-	aimkey == 0x52;//r
-}
-else if (aimkeypos == 44)
-{
-	aimkey == 0x53;//s
-}
-else if (aimkeypos == 45)
-{
-	aimkey == 0x54;//t
-}
-else if (aimkeypos == 46)
-{
-	aimkey == 0x55;//u
-}
-else if (aimkeypos == 47)
-{
-	aimkey == 0x56;//v
-}
-else if (aimkeypos == 48)
-{
-	aimkey == 0x57;//w
-}
-else if (aimkeypos == 49)
-{
-	aimkey == 0x58;//x
-}
-else if (aimkeypos == 50)
-{
-	aimkey == 0x59;//y
-}
-else if (aimkeypos == 51)
-{
-	aimkey == 0x5A;//z
-}
-else if (aimkeypos == 52)
-{
-	aimkey == 0x60;//numpad 0
-}
-else if (aimkeypos == 53)
-{
-	aimkey == 0x61;//numpad 1
-}
-else if (aimkeypos == 54)
-{
-	aimkey == 0x62;//numpad 2
-}
-else if (aimkeypos == 55)
-{
-	aimkey == 0x63;//numpad 3
-}
-else if (aimkeypos == 56)
-{
-	aimkey == 0x64;//numpad 4
-}
-else if (aimkeypos == 57)
-{
-	aimkey == 0x65;//numpad 5
-}
-else if (aimkeypos == 58)
-{
-	aimkey == 0x66;//numpad 6
-}
-else if (aimkeypos == 59)
-{
-	aimkey == 0x67;//numpad 7
-}
-else if (aimkeypos == 60)
-{
-	aimkey == 0x68;//numpad 8
-}
-else if (aimkeypos == 61)
-{
-	aimkey == 0x69;//numpad 9
-}
-else if (aimkeypos == 62)
-{
-	aimkey == 0x6A;//multiply
-}
-
-auto entityListCopy = entityList;
-float closestDistance = FLT_MAX;
-DWORD_PTR closestPawn = NULL;
-Uworld = ReadBizzy<DWORD_PTR>(base_address + GWorld);
-DWORD_PTR Gameinstance = ReadBizzy<DWORD_PTR>(Uworld + OFFSETS::Gameinstance);
-DWORD_PTR LocalPlayers = ReadBizzy<DWORD_PTR>(Gameinstance + OFFSETS::LocalPlayers);
-Localplayer = ReadBizzy<DWORD_PTR>(LocalPlayers);
-PlayerController = ReadBizzy<DWORD_PTR>(Localplayer + OFFSETS::PlayerController);
-LocalPawn = ReadBizzy<DWORD_PTR>(PlayerController + OFFSETS::LocalPawn);
-PlayerState = ReadBizzy<DWORD_PTR>(LocalPawn + OFFSETS::PlayerState);
-DWORD_PTR PlayerCameraManager = ReadBizzy<DWORD_PTR>(PlayerController + 0x340);
-PlayerCameraManager = ReadBizzy<DWORD_PTR>(LocalPawn + PlayerCameraManager);
-Rootcomp = ReadBizzy<DWORD_PTR>(LocalPawn + OFFSETS::RootComponet);
-Persistentlevel = ReadBizzy<DWORD_PTR>(Uworld + OFFSETS::PersistentLevel);
-uintptr_t Crrneytwep = ReadBizzy<uintptr_t>(LocalPawn + OFFSETS::CurrentWeapon);
-DWORD ActorCount = ReadBizzy<DWORD>(Persistentlevel + OFFSETS::ActorCount);
-DWORD_PTR AOFFSETS = ReadBizzy<DWORD_PTR>(Persistentlevel + OFFSETS::AActor);
-
-DWORD_PTR GameState = ReadBizzy<DWORD_PTR>(Uworld + OFFSETS::GameState);//gamestate
-DWORD_PTR PlayerArray = ReadBizzy<DWORD_PTR>(GameState + OFFSETS::PlayerArray);//playerarray
-uint64_t CurrentVehicle = ReadBizzy<uint64_t>(LocalPawn + OFFSETS::CurrentVehicle); //FortPlayerPawn::CurrentVehicle
-
-bool InLobby;
-InLobby = false;
-if (LocalPawn) InLobby = true;
-int Num = ReadBizzy<int>( GameState + (OFFSETS::PlayerArray + sizeof(uintptr_t))); //reads the total number of player states in this array
-
-for (uint32_t i = 0; i < Num; i++)
-{
-
-
-
-
-
-	auto player = ReadBizzy<uintptr_t>(PlayerArray + i * 0x8);
-	auto CurrentActor = ReadBizzy<uintptr_t>(player + OFFSETS::PawnPrivate);//PawnPrivate
-
-	if (!CurrentActor) {
-		continue;
-	}
-	if (!LocalPawn)//ik worst way to do lobby esp but i really dont give a fuck on this paste common sense - bizzy
+	else if (hitboxpos == 1)
 	{
-		VisDist = 2400;
-
+		hitbox = 67; //neck
 	}
-	int NewPlayerLocationX;
-	int NewPlayerLocationY;
-	uint64_t CurrentActorMesh = ReadBizzy<uint64_t>(CurrentActor + OFFSETS::Mesh);
-	int MyTeamId = ReadBizzy<int>(PlayerState + OFFSETS::TeamId);
-	DWORD64 otherPlayerState = ReadBizzy<uint64_t>(CurrentActor + 0x290);
-	int ActorTeamId = ReadBizzy<int>(otherPlayerState + OFFSETS::TeamId);
-	auto isDBNO = (ReadBizzy<char>(CurrentActor + 0x7c2) >> 4) & 1;
+	else if (hitboxpos == 2)
+	{
+		hitbox = 36; //chest
+	}
+	else if (hitboxpos == 3)
+	{
+		hitbox = 2; //pelvis
+	}
+
+	if (aimkeypos == 0)
+	{
+		aimkey = 0x01;//left mouse button
+	}
+	else if (aimkeypos == 1)
+	{
+		aimkey = 0x02;//right mouse button
+	}
+	else if (aimkeypos == 2)
+	{
+		aimkey = 0x04;//middle mouse button
+	}
+	else if (aimkeypos == 3)
+	{
+		aimkey = 0x05;//x1 mouse button
+	}
+	else if (aimkeypos == 4)
+	{
+		aimkey = 0x06;//x2 mouse button
+	}
+	else if (aimkeypos == 5)
+	{
+		aimkey = 0x03;//control break processing
+	}
+	else if (aimkeypos == 6)
+	{
+		aimkey = 0x08;//backspace
+	}
+	else if (aimkeypos == 7)
+	{
+		aimkey = 0x09;//tab
+	}
+	else if (aimkeypos == 8)
+	{
+		aimkey = 0x0c;//clear
+	}
+	else if (aimkeypos == 9)
+	{
+		aimkey == 0x0D;//enter
+	}
+	else if (aimkeypos == 10)
+	{
+		aimkey = 0x10;//shift
+	}
+	else if (aimkeypos == 11)
+	{
+		aimkey = 0x11;//ctrl
+	}
+	else if (aimkeypos == 12)
+	{
+		aimkey == 0x12;//alt
+	}
+	else if (aimkeypos == 13)
+	{
+		aimkey == 0x14;//caps lock
+	}
+	else if (aimkeypos == 14)
+	{
+		aimkey == 0x1B;//esc
+	}
+	else if (aimkeypos == 15)
+	{
+		aimkey == 0x20;//space
+	}
+	else if (aimkeypos == 16)
+	{
+		aimkey == 0x30;//0
+	}
+	else if (aimkeypos == 17)
+	{
+		aimkey == 0x31;//1
+	}
+	else if (aimkeypos == 18)
+	{
+		aimkey == 0x32;//2
+	}
+	else if (aimkeypos == 19)
+	{
+		aimkey == 0x33;//3
+	}
+	else if (aimkeypos == 20)
+	{
+		aimkey == 0x34;//4
+	}
+	else if (aimkeypos == 21)
+	{
+		aimkey == 0x35;//5
+	}
+	else if (aimkeypos == 22)
+	{
+		aimkey == 0x36;//6
+	}
+	else if (aimkeypos == 23)
+	{
+		aimkey == 0x37;//7
+	}
+	else if (aimkeypos == 24)
+	{
+		aimkey == 0x38;//8
+	}
+	else if (aimkeypos == 25)
+	{
+		aimkey == 0x39;//9
+	}
+	else if (aimkeypos == 26)
+	{
+		aimkey == 0x41;//a
+	}
+	else if (aimkeypos == 27)
+	{
+		aimkey == 0x42;//b
+	}
+	else if (aimkeypos == 28)
+	{
+		aimkey == 0x43;//c
+	}
+	else if (aimkeypos == 29)
+	{
+		aimkey == 0x44;//d
+	}
+	else if (aimkeypos == 30)
+	{
+		aimkey == 0x45;//e
+	}
+	else if (aimkeypos == 31)
+	{
+		aimkey == 0x46;//f
+	}
+	else if (aimkeypos == 32)
+	{
+		aimkey == 0x47;//g
+	}
+	else if (aimkeypos == 33)
+	{
+		aimkey == 0x48;//h
+	}
+	else if (aimkeypos == 34)
+	{
+		aimkey == 0x49;//i
+	}
+	else if (aimkeypos == 35)
+	{
+		aimkey == 0x4A;//j
+	}
+	else if (aimkeypos == 36)
+	{
+		aimkey == 0x4B;//k
+	}
+	else if (aimkeypos == 37)
+	{
+		aimkey == 0x4C;//L
+	}
+	else if (aimkeypos == 38)
+	{
+		aimkey == 0x4D;//m
+	}
+	else if (aimkeypos == 39)
+	{
+		aimkey == 0x4E;//n
+	}
+	else if (aimkeypos == 40)
+	{
+		aimkey == 0x4F;//o
+	}
+	else if (aimkeypos == 41)
+	{
+		aimkey == 0x50;//p
+	}
+	else if (aimkeypos == 42)
+	{
+		aimkey == 0x51;//q
+	}
+	else if (aimkeypos == 43)
+	{
+		aimkey == 0x52;//r
+	}
+	else if (aimkeypos == 44)
+	{
+		aimkey == 0x53;//s
+	}
+	else if (aimkeypos == 45)
+	{
+		aimkey == 0x54;//t
+	}
+	else if (aimkeypos == 46)
+	{
+		aimkey == 0x55;//u
+	}
+	else if (aimkeypos == 47)
+	{
+		aimkey == 0x56;//v
+	}
+	else if (aimkeypos == 48)
+	{
+		aimkey == 0x57;//w
+	}
+	else if (aimkeypos == 49)
+	{
+		aimkey == 0x58;//x
+	}
+	else if (aimkeypos == 50)
+	{
+		aimkey == 0x59;//y
+	}
+	else if (aimkeypos == 51)
+	{
+		aimkey == 0x5A;//z
+	}
+	else if (aimkeypos == 52)
+	{
+		aimkey == 0x60;//numpad 0
+	}
+	else if (aimkeypos == 53)
+	{
+		aimkey == 0x61;//numpad 1
+	}
+	else if (aimkeypos == 54)
+	{
+		aimkey == 0x62;//numpad 2
+	}
+	else if (aimkeypos == 55)
+	{
+		aimkey == 0x63;//numpad 3
+	}
+	else if (aimkeypos == 56)
+	{
+		aimkey == 0x64;//numpad 4
+	}
+	else if (aimkeypos == 57)
+	{
+		aimkey == 0x65;//numpad 5
+	}
+	else if (aimkeypos == 58)
+	{
+		aimkey == 0x66;//numpad 6
+	}
+	else if (aimkeypos == 59)
+	{
+		aimkey == 0x67;//numpad 7
+	}
+	else if (aimkeypos == 60)
+	{
+		aimkey == 0x68;//numpad 8
+	}
+	else if (aimkeypos == 61)
+	{
+		aimkey == 0x69;//numpad 9
+	}
+	else if (aimkeypos == 62)
+	{
+		aimkey == 0x6A;//multiply
+	}
+
 
 	auto entityListCopy = entityList;
-	if (MyTeamId == ActorTeamId) continue;
+	float closestDistance = FLT_MAX;
+	DWORD_PTR closestPawn = NULL;
+	Uworld = ReadBizzy<DWORD_PTR>(base_address + 0xEE9ED98);
+	DWORD_PTR Gameinstance = ReadBizzy<DWORD_PTR>(Uworld + OFFSETS::Gameinstance);
+	DWORD_PTR LocalPlayers = ReadBizzy<DWORD_PTR>(Gameinstance + OFFSETS::LocalPlayers);
+	Localplayer = ReadBizzy<DWORD_PTR>(LocalPlayers);
+	PlayerController = ReadBizzy<DWORD_PTR>(Localplayer + OFFSETS::PlayerController);
+	LocalPawn = ReadBizzy<DWORD_PTR>(PlayerController + OFFSETS::LocalPawn);
+	uintptr_t pcmc = ReadBizzy<uint64_t>(PlayerController + 0x330);
+	PlayerState = ReadBizzy<DWORD_PTR>(LocalPawn + OFFSETS::PlayerState);
+	DWORD_PTR PlayerCameraManager = ReadBizzy<DWORD_PTR>(PlayerController + OFFSETS::Cameramanager);
+	PlayerCameraManager = ReadBizzy<DWORD_PTR>(LocalPawn + PlayerCameraManager);
+	Rootcomp = ReadBizzy<DWORD_PTR>(LocalPawn + OFFSETS::RootComponet);
+	Persistentlevel = ReadBizzy<DWORD_PTR>(Uworld + OFFSETS::PersistentLevel);
+	uintptr_t Crrneytwep = ReadBizzy<uintptr_t>(LocalPawn + 0x868);
+	DWORD ActorCount = ReadBizzy<DWORD>(Persistentlevel + OFFSETS::ActorCount);
+	DWORD_PTR AOFFSETS = ReadBizzy<DWORD_PTR>(Persistentlevel + OFFSETS::AActor);
 
-	if (slefESP)
+	DWORD_PTR GameState = ReadBizzy<DWORD_PTR>(Uworld + OFFSETS::GameState);//gamestate
+	DWORD_PTR PlayerArray = ReadBizzy<DWORD_PTR>(GameState + OFFSETS::PlayerArray);//playerarray
+	uint64_t CurrentVehicle = ReadBizzy<uint64_t>(LocalPawn + 0x2348); //FortPlayerPawn::CurrentVehicle
+
+	bool InLobby;
+	InLobby = false;
+	if (LocalPawn) InLobby = true;
+	int Num = ReadBizzy<int>(GameState + (OFFSETS::PlayerArray + sizeof(uintptr_t))); //reads the total number of player states in this array
+
+	for (uint32_t i = 0; i < Num; i++)
 	{
-		continue;
-	}
-	else {
-		if (CurrentActor == LocalPawn) continue;
-	}
-	if (CurrentActor == LocalPawn) continue;
-	Vector3 Headpos = GetBoneWithRotation(CurrentActorMesh, 67);
-	Vector3 head2 = GetBoneWithRotation(CurrentActorMesh, 68);
-	Vector3 footpos = GetBoneWithRotation(CurrentActorMesh, 0);
-	localactorpos = ReadBizzy<Vector3>(Rootcomp + 0x128);
-	auto normal_head = ProjectWorldToScreen(Headpos);
-	float distance = localactorpos.Distance(Headpos) / ChangerFOV;
-
-	Vector3 bone15 = GetBoneWithRotation(CurrentActorMesh, 50);
-	Vector3 top = ProjectWorldToScreen(bone15);
-
-	Vector3 bone0 = GetBoneWithRotation(CurrentActorMesh, 0);
-	Vector3 bottom = ProjectWorldToScreen(bone0);
-	Vector3 Headbox = ProjectWorldToScreen(Vector3(Headpos.x, Headpos.y, Headpos.z + 15));
-	Vector3 HeadElvar = ProjectWorldToScreen(Vector3(Headpos.x, Headpos.y, Headpos.z));
-	Vector3 FeetElvar = ProjectWorldToScreen(Vector3(footpos.x, footpos.y, footpos.z));
-	//Vector3 Toebox = ProjectWorldToScreen(Vector3(Toepos.x, Toepos.y, Toepos.z + 15));
-	Vector3 w2shead = ProjectWorldToScreen(Headpos);
-
-	float BoxHeight = (float)(Headbox.y - bottom.y);
-	float BoxWidth = BoxHeight * 0.50f;
-
-	float LeftX = (float)Headbox.x - (BoxWidth / 1);
-	float LeftY = (float)bottom.y;
-
-	int center_x = GetSystemMetrics(0) / 2 - 3;
-	int center_y = GetSystemMetrics(1) / 2 - 3;
 
 
 
 
 
+		auto player = ReadBizzy<uintptr_t>(PlayerArray + i * 0x8);
+		auto CurrentActor = ReadBizzy<uintptr_t>(player + OFFSETS::PawnPrivate);//PawnPrivate
 
-	float CornerHeight = abs(Headbox.y - bottom.y);
-	float CornerWidth = CornerHeight * BoxWidthValue;
-	if (distance < VisDist)
-	{
-		
-		if (Esp)
+		if (!CurrentActor) {
+			continue;
+			cout << "JOPA";
+		}
+
+
+		if (!LocalPawn)
 		{
-		
-			if (Esp_box)
-			{
+			VisDist = 2400;
+		}
+		else
+		{
+			// Aquí no hacemos ningún cambio en el valor de VisDist para mantenerlo sin cambios
+		}
+		int NewPlayerLocationX;
+		int NewPlayerLocationY;
 
-				if (!isVisible(CurrentActorMesh))
+		//uint64_t CurrentActor = read<uint64_t>(AOFFSETS + i * OFFSETS::CurrentActor);
+	   // if (read<float>(CurrentActor + OFFSETS::Revivefromdbnotime) != 10) continue;
+		uint64_t CurrentActorMesh = ReadBizzy<uint64_t>(CurrentActor + OFFSETS::Mesh);
+		int MyTeamId = ReadBizzy<int>(PlayerState + OFFSETS::TeamId);
+		DWORD64 otherPlayerState = ReadBizzy<uint64_t>(CurrentActor + 0x290);
+		int ActorTeamId = ReadBizzy<int>(otherPlayerState + OFFSETS::TeamId);
+		auto isDBNO = (ReadBizzy<char>(CurrentActor + 0x7c2) >> 4) & 1;
+
+		auto entityListCopy = entityList;
+		//if (MyTeamId == ActorTeamId) continue;
+
+
+
+		if (slefESP)
+		{
+			continue;
+		}
+		else {
+			if (CurrentActor == LocalPawn) continue;
+		}
+		if (CurrentActor == LocalPawn) continue;
+		Vector3 Headpos = GetBoneWithRotation(CurrentActorMesh, 67);
+		Vector3 head2 = GetBoneWithRotation(CurrentActorMesh, 68);
+		Vector3 footpos = GetBoneWithRotation(CurrentActorMesh, 0);
+		localactorpos = ReadBizzy<Vector3>(Rootcomp + OFFSETS::relativelocation);
+		auto normal_head = ProjectWorldToScreen(Headpos);
+		float distance = localactorpos.Distance(Headpos) / ChangerFOV;
+
+		Vector3 bone15 = GetBoneWithRotation(CurrentActorMesh, 50);
+		Vector3 top = ProjectWorldToScreen(bone15);
+
+		Vector3 bone0 = GetBoneWithRotation(CurrentActorMesh, 0);
+		Vector3 bottom = ProjectWorldToScreen(bone0);
+		Vector3 Headbox = ProjectWorldToScreen(Vector3(Headpos.x, Headpos.y, Headpos.z + 15));
+		Vector3 HeadElvar = ProjectWorldToScreen(Vector3(Headpos.x, Headpos.y, Headpos.z));
+		Vector3 FeetElvar = ProjectWorldToScreen(Vector3(footpos.x, footpos.y, footpos.z));
+		//Vector3 Toebox = ProjectWorldToScreen(Vector3(Toepos.x, Toepos.y, Toepos.z + 15));
+		Vector3 w2shead = ProjectWorldToScreen(Headpos);
+
+		float BoxHeight = (float)(Headbox.y - bottom.y);
+		float BoxWidth = BoxHeight * 0.50f;
+
+		float LeftX = (float)Headbox.x - (BoxWidth / 1);
+		float LeftY = (float)bottom.y;
+
+		int center_x = GetSystemMetrics(0) / 2 - 3;
+		int center_y = GetSystemMetrics(1) / 2 - 3;
+
+
+
+
+
+
+		float CornerHeight = abs(Headbox.y - bottom.y);
+		float CornerWidth = CornerHeight * BoxWidthValue;
+		if (zekren)
+		{
+			POINT Screen;
+			int oodofdfo, jbjfdbdsf;
+			Screen.x = GetSystemMetrics(0);
+			Screen.y = GetSystemMetrics(1);
+			// Middle POINT
+			POINT Middle;
+			Middle.x = (int)(Screen.x / 2);
+			Middle.y = (int)(Screen.y / 2);
+			int a = (int)(Screen.y / 2 / 30);
+			float gamma = atan(a / a);
+			static int faken_rot = 0;
+			faken_rot++;
+			int Drehungswinkel = faken_rot;
+
+			int i = 0;
+			while (i < 4)
+			{
+				std::vector<int> p;
+				p.push_back(a * sin(GRD_TO_BOG(Drehungswinkel + (i * 90))));                                    // p[0]        p0_A.x
+				p.push_back(a * cos(GRD_TO_BOG(Drehungswinkel + (i * 90))));                                    // p[1]        p0_A.y
+				p.push_back((a / cos(gamma)) * sin(GRD_TO_BOG(Drehungswinkel + (i * 90) + BOG_TO_GRD(gamma))));    // p[2]        p0_B.x
+				p.push_back((a / cos(gamma)) * cos(GRD_TO_BOG(Drehungswinkel + (i * 90) + BOG_TO_GRD(gamma))));    // p[3]        p0_B.y
+
+				// Calculate the hue based on time (you can replace this with any other variable)
+				float hue = fmodf(ImGui::GetTime(), 1.0f); // Range from 0.0 to 1.0
+
+				ImU32 lineColor = ImColor::HSV(hue + i * 0.25f, 1.0f, 1.0f); // Radial gradient with rainbow colors
+				ImVec2 p0 = ImVec2(Middle.x, Middle.y);
+				ImVec2 p1 = ImVec2(Middle.x + p[0], Middle.y - p[1]);
+				ImVec2 p2 = ImVec2(Middle.x + p[2], Middle.y - p[3]);
+
+				ImGui::GetOverlayDrawList()->AddLine(p0, p1, lineColor);
+				ImGui::GetOverlayDrawList()->AddLine(p1, p2, lineColor);
+
+				i++;
+			}
+		}
+
+		if (spinbot)
+		{
+			auto Mesh = ReadBizzy<uint64_t>(LocalPawn + OFFSETS::Mesh);
+			static auto Cached = ReadBizzy<Vector3>(Mesh + 0x140);
+
+			if (GetAsyncKeyState(VK_LBUTTON)) {
+				WriteBizzy<Vector3>(Mesh + 0x140, Vector3(1, rand() % 361, 1));
+			}
+			else WriteBizzy<Vector3>(Mesh + 0x140, Cached);
+		}
+		if (instantreload)
+		{
+			uintptr_t worldsettings = ReadBizzy<uint64_t>(Persistentlevel + 0x298);
+			uintptr_t CurrentWeapon = ReadBizzy<uintptr_t>(LocalPawn + 0x8d8);
+			uintptr_t SimcraftsTwoPoint5Hours1 = ReadBizzy<uintptr_t>(CurrentWeapon + 0xc41);
+			uintptr_t SimcraftsTwoPoint5Hours2 = ReadBizzy<uintptr_t>(SimcraftsTwoPoint5Hours1 + 0x1678);
+			uintptr_t SimcraftsTwoPoint5Hours3 = ReadBizzy<uintptr_t>(SimcraftsTwoPoint5Hours2 + 0x6233);
+			uintptr_t SimcraftsTwoPoint5Hours4 = ReadBizzy<uintptr_t>(SimcraftsTwoPoint5Hours3 + 0xc87);
+			uintptr_t SimcraftsTwoPoint5Hours5 = ReadBizzy<uintptr_t>(SimcraftsTwoPoint5Hours4 + 0xb39);
+			uintptr_t SimcraftsTwoPoint5Hours6 = ReadBizzy<uintptr_t>(SimcraftsTwoPoint5Hours5 + 0x267);
+			uintptr_t SimcraftsTwoPoint5Hours7 = ReadBizzy<uintptr_t>(SimcraftsTwoPoint5Hours6 + 0x5cc);
+			uintptr_t SimcraftsTwoPoint5Hours8 = ReadBizzy<uintptr_t>(SimcraftsTwoPoint5Hours7 + 0xc82 + 0x8 + 0x18);
+
+			WriteBizzy<char>(SimcraftsTwoPoint5Hours8 + 0x9c8, 0);
+			WriteBizzy<float>(SimcraftsTwoPoint5Hours8 + 0x928, 0.01);
+
+			bool cum = ReadBizzy<bool>(CurrentWeapon + 0x329);
+
+			if (cum) {
+				WriteBizzy<float>(worldsettings + 0x3C0, 70);
+			}
+			else {
+				WriteBizzy<float>(worldsettings + 0x3C0, 1);
+			}
+
+		}
+
+		if (RapidFire) {
+
+				uintptr_t DMR = ReadBizzy<uintptr_t>(base_address + 0x2883A10);
+				uintptr_t DMRBuff1 = ReadBizzy<uintptr_t>(DMR + 0xDA);
+				uintptr_t DMRBuff2 = ReadBizzy<uintptr_t>(DMRBuff1 + 0x3A);
+				uintptr_t DMRBuff3 = ReadBizzy<uintptr_t>(DMRBuff2 + 0x67);
+				uintptr_t DMRBuff4 = ReadBizzy<uintptr_t>(DMRBuff3 + 0x26);
+				uintptr_t DMRBuff5 = ReadBizzy<uintptr_t>(DMRBuff4 + 0x7EA);
+
+				WriteBizzy<float>(DMRBuff5 + 0x26, 0.003f);//troppo veloce
+
+		}
+		if (infammo) {
+
+				uintptr_t CurrentWeapon = ReadBizzy<uintptr_t>(PlayerState + 0x8d8);
+				if (CurrentWeapon) {
+					WriteBizzy<char>(CurrentWeapon + 0x2628, true);
+				}
+
+		}
+		if (tpose)
+		{
+			if (LocalPawn)
+			{
+				uintptr_t LocalMesh = ReadBizzy<uintptr_t>(LocalPawn + OFFSETS::Mesh);
+				WriteBizzy<char>(LocalMesh + 0xa3a, true); //USkeletalMeshComponent	bForceRefpose : 1	0x9aa	char
+			}
+		}
+		if (minigun){
+			float TimeHeatWasLastAdded = ReadBizzy<float>(LocalPawn + 0x14d4);
+			float TimeOverheatedBegan = ReadBizzy<float>(LocalPawn + 0x14d8);
+			float OverheatValue = ReadBizzy<float>(LocalPawn + 0x14cc);
+			float WeaponOverheatedAnimation = ReadBizzy<float>(LocalPawn + 0x14c0);
+			uintptr_t CurrentWeapon = ReadBizzy<float>(LocalPawn + 0x8d8);
+
+			if (TimeHeatWasLastAdded != 0.f or TimeOverheatedBegan != 0.f or OverheatValue != 0.f or WeaponOverheatedAnimation != 0.f) {
+				WriteBizzy<float>(CurrentWeapon + 0x14d4, 0.f);
+				WriteBizzy<float>(CurrentWeapon + 0x14d8, 0.f);
+				WriteBizzy<float>(CurrentWeapon + 0x14cc, 0.f);
+				WriteBizzy<float>(CurrentWeapon + 0x14c0, 0.f);
+			}
+	}
+
+		if (first_person) {
+			if (GetAsyncKeyState(VK_RBUTTON)) {
+				if (LocalPawn) {
+					uintptr_t Mesh = ReadBizzy<uintptr_t>(LocalPawn + 0x310);
+					WriteBizzy<Vector3>(Mesh + 0x158, Vector3(2000, -2000, 2000)); //Class Engine.SceneComponent - RelativeScale3D
+				}
+			}
+			else {
+				uintptr_t Mesh = ReadBizzy<uintptr_t>(LocalPawn + 0x310);
+				WriteBizzy<Vector3>(Mesh + 0x158, Vector3(0, 0, -87)); //Class Engine.SceneComponent - RelativeScale3D 
+			}
+		if (carfly)
+			{
+				uintptr_t CurrentVehicle = ReadBizzy<DWORD_PTR>(LocalPawn + 0x23d8); // CurrentVehicle
+
+				if (CurrentVehicle && GetAsyncKeyState(VK_SPACE))
 				{
-					// rgba(0, 255, 231, 0)
-					DrawBox(Headbox.x - (CornerWidth / 2), Headbox.y, CornerWidth, CornerHeight, IM_COL32(255, 0, 0, 255), 2.5);
+					WriteBizzy<bool>(CurrentVehicle + 0x6aa, false); // bUseGravity : 1	
 				}
 				else {
-					// rgba(0, 255, 231, 1)
-					DrawBox(Headbox.x - (CornerWidth / 2), Headbox.y, CornerWidth, CornerHeight, IM_COL32(0, 255, 0, 255), 2.5);
+					WriteBizzy<bool>(CurrentVehicle + 0x6aa, true); // bUseGravity : 1	
 				}
-	
 
 			}
+		}
+		//if (bullettp) {
+		//	{
+		//		if (ReadBizzy<DWORD_PTR>(CurrentActor + 0x6b8) && ReadBizzy<DWORD_PTR>(ReadBizzy<DWORD_PTR>(CurrentActor + 0x6b8) + 0x8)) // Bullet Check, AFortProjectileBase - MaxSpeed - 0x6b8
+		//		{
+		//			std::string AllAct = ReadGetNameFromFName(CurrentActorId);
 
-			if (threed)
+		//			if (AllAct == "B_Prj_Bullet_Sniper_C" or AllAct == "B_Prj_Bullet_DMR_C" or AllAct == "B_Prj_Bullet_Sniper_Heavy_C" or AllAct == "B_Prj_Bullet_Cosmos_AR_C")
+		//			{
+		//				uint64_t currentactormeshsexy = ReadBizzy<uint64_t>(closestPawn + 0x310);
+		//				DWORD_PTR BulletRootComp = ReadBizzy<DWORD_PTR>(CurrentActor + 0x190);
+		//				Vector3 POS = GetBoneWithRotation(currentactormeshsexy, 66);
+		//				Vector3 TPOS = ProjectWorldToScreen(Vector3(POS.x, POS.y, POS.z));
+
+		//				WriteBizzy<char>(BulletRootComp + 0x190, 0);
+		//				WriteBizzy<Vector3>(BulletRootComp + 0x128, TPOS);
+		//			}
+		//		}
+		//	}
+
+		//}
+		if (fovchanger)
+		{
+
+
+			int FOVVALUE = 500;
+			uintptr_t PlayerCameraManager = ReadBizzy<uintptr_t>(PlayerController + 0x340); // APlayerController -  PlayerCameraManager
+			WriteBizzy<float>(PlayerCameraManager + 0x29c + 0x4, 500); // APlayerCameraManager - DefaultFOV
+			WriteBizzy(PlayerCameraManager + 0x348, 500); // AEmitterCameraLensEffectBase - BaseFOV
+
+
+		}
+
+
+
+		if (distance < VisDist)
+		{
+			if (Esp)
 			{
-				if (HeadElvar.x != 0 || HeadElvar.y != 0 || HeadElvar.z != 0)
+
+				if (Esp_box)
 				{
-					ImU32 ESPSkeleton;
-					if (isVisible(CurrentActorMesh))
+					DrawBox(Headbox.x - (CornerWidth / 2), Headbox.y, CornerWidth, CornerHeight, IM_COL32(255, 255, 255, 255), 2.5);
+
+				}
+				if (Esp_Skeleton1)
+				{
+					if (distance < VisDist)
 					{
-						ESPSkeleton = ImColor(0, 255, 0);
+						DrawSkeleton1337(CurrentActorMesh);
+						/*Vector3 vHeadBoneOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 68));
+						Vector3 vHipOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 7));
+						Vector3 vNeckOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 67));
+						Vector3 vUpperArmLeftOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 9));
+						Vector3 vUpperArmRightOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 38));
+						Vector3 vLeftHandOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 30));
+						Vector3 vRightHandOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 58));
+						Vector3 vLeftHandOut1 = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 11));
+						Vector3 vRightHandOut1 = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 40));
+						Vector3 vRightThighOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 74));
+						Vector3 vLeftThighOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 71));
+						Vector3 vRightCalfOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 79));
+						Vector3 vLeftCalfOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 72));
+						Vector3 vLeftFootOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 74));
+						Vector3 vRightFootOut = ProjectWorldToScreen(GetBoneWithRotation(CurrentActorMesh, 81));
+
+						DrawLine(vHipOut.x, vHipOut.y, vNeckOut.x, vNeckOut.y, &Col.red, 2.f);
+
+						DrawLine(vUpperArmLeftOut.x, vUpperArmLeftOut.y, vNeckOut.x, vNeckOut.y, &Col.red, 2.f);
+						DrawLine(vUpperArmRightOut.x, vUpperArmRightOut.y, vNeckOut.x, vNeckOut.y, &Col.red, 2.f);
+
+						DrawLine(vLeftHandOut.x, vLeftHandOut.y, vUpperArmLeftOut.x, vUpperArmLeftOut.y, &Col.red, 2.f);
+						DrawLine(vRightHandOut.x, vRightHandOut.y, vUpperArmRightOut.x, vUpperArmRightOut.y, &Col.red, 2.f);
+
+						DrawLine(vLeftHandOut.x, vLeftHandOut.y, vLeftHandOut1.x, vLeftHandOut1.y, &Col.red, 2.f);
+						DrawLine(vRightHandOut.x, vRightHandOut.y, vRightHandOut1.x, vRightHandOut1.y, &Col.red, 2.f);
+
+						DrawLine(vLeftThighOut.x, vLeftThighOut.y, vHipOut.x, vHipOut.y, &Col.red, 2.f);
+						DrawLine(vRightThighOut.x, vRightThighOut.y, vHipOut.x, vHipOut.y, &Col.red, 2.f);
+
+						DrawLine(vLeftCalfOut.x, vLeftCalfOut.y, vLeftThighOut.x, vLeftThighOut.y, &Col.red, 2.f);
+						DrawLine(vRightCalfOut.x, vRightCalfOut.y, vRightThighOut.x, vRightThighOut.y, &Col.red, 2.f);
+
+						DrawLine(vLeftFootOut.x, vLeftFootOut.y, vLeftCalfOut.x, vLeftCalfOut.y, &Col.red, 2.f);
+						DrawLine(vRightFootOut.x, vRightFootOut.y, vRightCalfOut.x, vRightCalfOut.y, &Col.red, 2.f);*/
+						
+
+
 					}
-					else if (!isVisible(CurrentActorMesh))
-					{
-						ESPSkeleton = ImColor(255, 0, 0);
+				}
+				if (Skeleton)
+				{
+					DrawSkeleton(CurrentActorMesh);
+				}
+
+				if (lineheadesp)
+				{
+
+					DrawLine(Width / 2, Height / 2, HeadElvar.x, HeadElvar.y, &Col.blue, 1.5);
+				}
+
+				if (cornerline)
+				{
+					if (isVisible(CurrentActorMesh)) {
+						DrawLine(Width, Height, HeadElvar.x, HeadElvar.y, &Col.green, 1.5);
 					}
+					if (!isVisible(CurrentActorMesh)) {
+						DrawLine(Width, Height, HeadElvar.x, HeadElvar.y, &Col.red, 1.5);
+					}
+				}
+
+				if (fillbox)
+				{
+					DrawCorneredBox(HeadElvar.x - (CornerWidth / 2), HeadElvar.y, CornerWidth, CornerHeight, IM_COL32(3, 24, 252, 255), 2.5);
+					DrawFilledRect(HeadElvar.x - (CornerWidth / 2), HeadElvar.y, CornerWidth, CornerHeight, IM_COL32(0, 0, 0, 125));
+				}
+
+				if (Esp_Distance)
+				{
 
 
-					Vector3 bottom1 = ProjectWorldToScreen(Vector3(HeadElvar.x + 40, HeadElvar.y - 40, HeadElvar.z));
-					Vector3 bottom2 = ProjectWorldToScreen(Vector3(HeadElvar.x - 40, HeadElvar.y - 40, HeadElvar.z));
-					Vector3 bottom3 = ProjectWorldToScreen(Vector3(HeadElvar.x - 40, HeadElvar.y + 40, HeadElvar.z));
-					Vector3 bottom4 = ProjectWorldToScreen(Vector3(HeadElvar.x + 40, HeadElvar.y + 40, HeadElvar.z));
+					XorS(dst, "[%.fm]\n");
+					char dist[64];
+					sprintf_s(dist, dst.decrypt(), distance);
+					DrawOutlinedText(m_pFont, dist, ImVec2(Headbox.x, Headbox.y - 35), 16.0f, IM_COL32(56, 122, 675, 255), true);
 
-					Vector3 top1 = ProjectWorldToScreen(Vector3(HeadElvar.x + 40, HeadElvar.y - 40, HeadElvar.z + 15));
-					Vector3 top2 = ProjectWorldToScreen(Vector3(HeadElvar.x - 40, HeadElvar.y - 40, HeadElvar.z + 15));
-					Vector3 top3 = ProjectWorldToScreen(Vector3(HeadElvar.x - 40, HeadElvar.y + 40, HeadElvar.z + 15));
-					Vector3 top4 = ProjectWorldToScreen(Vector3(HeadElvar.x + 40, HeadElvar.y + 40, HeadElvar.z + 15));
 
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(bottom1.x, bottom1.y), ImVec2(top1.x, top1.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(bottom2.x, bottom2.y), ImVec2(top2.x, top2.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(bottom3.x, bottom3.y), ImVec2(top3.x, top3.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(bottom4.x, bottom4.y), ImVec2(top4.x, top4.y), ESPSkeleton, 2.0f);
+				}
 
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(bottom1.x, bottom1.y), ImVec2(bottom2.x, bottom2.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(bottom2.x, bottom2.y), ImVec2(bottom3.x, bottom3.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(bottom3.x, bottom3.y), ImVec2(bottom4.x, bottom4.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(bottom4.x, bottom4.y), ImVec2(bottom1.x, bottom1.y), ESPSkeleton, 2.0f);
+				if (Esp_line)
 
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(top1.x, top1.y), ImVec2(top2.x, top2.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(top2.x, top2.y), ImVec2(top3.x, top3.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(top3.x, top3.y), ImVec2(top4.x, top4.y), ESPSkeleton, 2.0f);
-					ImGui::GetOverlayDrawList()->AddLine(ImVec2(top4.x, top4.y), ImVec2(top1.x, top1.y), ESPSkeleton, 2.0f);
+				{
+					DrawLine(Width / 2, Height, bottom.x, bottom.y, &Col.white, 2.0);
+
 				}
 			}
+		}
+		auto dx = w2shead.x - (Width / 2);
+		auto dy = w2shead.y - (Height / 2);
+		auto dist = sqrtf(dx * dx + dy * dy);
 
-			if (lineheadesp)
-			{
 
-				DrawLine(Width / 2, Height / 2, HeadElvar.x, HeadElvar.y, &Col.blue, 1.5);
-			}
+		if (isVisible(CurrentActorMesh)) {
 
-			if (cornerline)
-			{
-				if (isVisible(CurrentActorMesh)) {
-					DrawLine(Width, Height, HeadElvar.x, HeadElvar.y, &Col.green, 1.5);
-				}
-				if (!isVisible(CurrentActorMesh)) {
-					DrawLine(Width, Height, HeadElvar.x, HeadElvar.y, &Col.red, 1.5);
-				}
-			}
-			if (fillbox)
-			{
-				DrawCorneredBox(HeadElvar.x - (CornerWidth / 2), HeadElvar.y, CornerWidth, CornerHeight, IM_COL32(3, 24, 252, 255), 2.5);
-				DrawFilledRect(HeadElvar.x - (CornerWidth / 2), HeadElvar.y, CornerWidth, CornerHeight, IM_COL32(0, 0, 0, 125));
-
+			if (dist < AimFOV && dist < closestDistance) {
+				closestDistance = dist;
+				closestPawn = CurrentActor;
 
 			}
-
-
-			if (Esp_Distance)
-			{
-
-
-				XorS(dst, "[%.fm]\n");
-				char dist[64];
-				sprintf_s(dist, dst.decrypt(), distance);
-				DrawOutlinedText(m_pFont, dist, ImVec2(Headbox.x, Headbox.y - 35), 16.0f, IM_COL32(56, 122, 675, 255), true);
-
-
-			}
-
-
-
-
-
-
-
-
-
-			if (Esp_line)
-
-			{
-				DrawLine(Width / 2, Height, bottom.x, bottom.y, &Col.blue, 1.5);
-
-			}
-
-
-
 		}
 	}
-	auto dx = w2shead.x - (Width / 2);
-	auto dy = w2shead.y - (Height / 2);
-	auto dist = sqrtf(dx * dx + dy * dy);
 
-
-	if (isVisible(CurrentActorMesh)) {
-
-		if (dist < AimFOV && dist < closestDistance) {
-			closestDistance = dist;
-			closestPawn = CurrentActor;
-
-		}
-	}
-}
-//Heres Where U Could Place Ur Dtc Exploits!
-if (spinbot)
-{
-	auto Mesh = ReadBizzy<uint64_t>(LocalPawn + OFFSETS::Mesh);
-	static auto Cached = ReadBizzy<Vector3>(Mesh + 0x140); // idk if its gonna work
-
-	if (GetAsyncKeyState(VK_LBUTTON)) {
-		WriteBizzy<Vector3>(Mesh + 0x140, Vector3(1, rand() % 361, 1));
-	}
-	else WriteBizzy<Vector3>(Mesh + 0x140, Cached);
-}
-
-if (Aimbot)
-{
+	if (Aimbot)
+	{
 
 		if (Aimbot && closestPawn && GetAsyncKeyState(hotkeys::aimkey) < 0) {
 			AimAt(closestPawn);
 		}
-	
 
-}
-}
 
+	}
+	if (crosshair)
+	{
+		ImGui::GetOverlayDrawList()->AddLine(ImVec2(Width / 2, Height / 2), ImVec2(Width / 2 - 10, Height / 2), ImGui::GetColorU32({ crosshairchick[0], crosshairchick[1], crosshairchick[2], 2 }));
+		ImGui::GetOverlayDrawList()->AddLine(ImVec2(Width / 2, Height / 2), ImVec2(Width / 2 + 10, Height / 2), ImGui::GetColorU32({ crosshairchick[0], crosshairchick[1], crosshairchick[2], 2 }));
+		ImGui::GetOverlayDrawList()->AddLine(ImVec2(Width / 2, Height / 2), ImVec2(Width / 2, Height / 2 - 10), ImGui::GetColorU32({ crosshairchick[0], crosshairchick[1], crosshairchick[2], 2 }));
+		ImGui::GetOverlayDrawList()->AddLine(ImVec2(Width / 2, Height / 2), ImVec2(Width / 2, Height / 2 + 10), ImGui::GetColorU32({ crosshairchick[0], crosshairchick[1], crosshairchick[2], 2 }));
+	}
+}
 
 void render() {
 	ImGui_ImplDX9_NewFrame();
@@ -1858,34 +2394,32 @@ void render() {
 	ImGui::NewFrame();
 
 	static int maintabs = 0;
-
+	if (GetAsyncKeyState(VK_INSERT) & 1) {
+		ShowMenu = !ShowMenu;
+	}
 	if (ShowMenu)
 	{
-		//Here Is Your Menu You Can Change Name Of The Menu Etc
-		ImGui::SetNextWindowSize({ 500, 500 });
+
+		ImGui::SetNextWindowSize({ 800, 800 });
 		XorS(box_esp, "Box");
 		XorS(snapline, "Snapline");
 		XorS(es5, "Max Visuals Distance");
-	    XorS(aim1, "Aimbot");
+		XorS(aim1, "Aimbot");
 		XorS(aim2, "Aimbot Key");
 		XorS(aim3, "Aimbot Bone");
 		XorS(aim6, "Aimbot FOV");
 		XorS(smoothh, "Smooth");
 
-		ImGui::Begin(("Your P2C NAME External | discord.gg/yourp2cserver  |  " __DATE__), 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
+		ImGui::Begin(("PasterX | Updated by Payson Holmes | dsc.gg/subzerofn"), 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
 
-		ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetIO().MousePos, ImVec2(ImGui::GetIO().MousePos.x + 5.f,
-			ImGui::GetIO().MousePos.y + 5.f), ImColor(255, 255, 255));
-
-		if (ShowMenu)
+		ImVec2 windowPos = ImGui::GetWindowPos();
+		ImVec2 windowSize = ImGui::GetWindowSize();
+		ImVec2 buttonSize(20, 20);
+		ImVec2 buttonPos(windowPos.x + windowSize.x - buttonSize.x - 5, windowPos.y + 5);
+		buttonPos.x += ImGui::GetContentRegionAvail().x - windowSize.x;
+		if (ImGui::Button("X", buttonSize))
 		{
-			if (particles)
-			{
-				ImDrawList* draw;
-				draw = ImGui::GetWindowDrawList();
-				ImVec2 screenSize = ImGui::GetIO().DisplaySize;
-				ImGui::Particles(draw, screenSize);
-			}
+			exit(0);
 		}
 
 
@@ -1893,6 +2427,7 @@ void render() {
 		{
 			ImGui::Checkbox(aim1.decrypt(), &Aimbot);
 			ImGui::SameLine();
+			ImGui::Checkbox("Crosshair", &crosshair);
 			ImGui::Checkbox("Circle FOV", &fovcircle);
 			if (fovcircle)
 			{
@@ -1906,19 +2441,17 @@ void render() {
 				fovcircle = false;
 				square_fov = false;
 			}
-			ImGui::SameLine();
-			ImGui::Checkbox("Square FOV", &square_fov);
+			//ImGui::SameLine();
+			//ImGui::Checkbox("Square FOV", &square_fov);
 			if (square_fov)
 			{
 				fovcirclefilled = false;
 				fovcircle = false;
 			}
-			ImGui::SameLine();
-			ImGui::Checkbox("nazi crosshair", &nazi2);
 			ImGui::SliderFloat(aim6.decrypt(), &AimFOV, 50.f, 800.f);
-			ImGui::SliderFloat("Smoothness", &smooth, 2, 10);
+			ImGui::SliderFloat("Aimbot Smooth", &smooth, 1, 10);
 			ImGui::Spacing();
-			ImGui::Text("Aim Key");
+			ImGui::Text("Aimbot Key");
 			HotkeyButton(hotkeys::aimkey, ChangeKey, keystatus);
 		}
 		ImGui::EndChild();
@@ -1928,45 +2461,35 @@ void render() {
 			ImGui::SliderInt("Esp Distance", &VisDist, 20, 500);
 			ImGui::Spacing();
 			ImGui::Spacing();
-			ImGui::Text("ESP:");
+			ImGui::Text("Visuals");
 			ImGui::Spacing();
+			ImGui::Checkbox("Enable ESP", &Esp);
 			ImGui::Checkbox(box_esp.decrypt(), &Esp_box);
-			ImGui::SameLine();
-			ImGui::Text("                                           Stuff");
-			ImGui::Checkbox("3d box esp", &threed);
-			ImGui::SameLine();
-			ImGui::Text("                  Base Address: %p", (void*)base_address);
-			ImGui::Spacing();
-			ImGui::Checkbox("Filled Boxes", &fillbox);
-			ImGui::Spacing();
+			//ImGui::SameLine();
+			ImGui::Checkbox("Zekren Mode (Nazi Crosshair)", &zekren);
 			ImGui::Checkbox("Distance", &Esp_Distance);
-			ImGui::Spacing();
 			ImGui::Checkbox("Snaplines", &Esp_line);
+			ImGui::Checkbox("Skeleton", &Esp_Skeleton1);
 			ImGui::Spacing();
-			ImGui::Checkbox("Particles", &particles);
-			ImGui::Spacing();
-			ImGui::Checkbox("Exploits Window", &exploitss);
-			ImGui::Spacing();
-
-			ImGui::Spacing();
-		}
-		ImGui::EndChild();
-
-
-
-
-		
-
-		ImGui::End();
-
-		if (exploitss == true)
-		{
-			ImGui::Begin((" Exploits Window"), 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar);
-
+			ImGui::Text("Exploits");
 			ImGui::Checkbox("Spinbot", &spinbot);
+			//ImGui::Checkbox("Instant Reload", &instantreload);
+			ImGui::Checkbox("FOV Changer", &fovchanger);
+			//HotkeyButton(hotkeys::fov, ChangeKey, keystatus);
+			ImGui::Checkbox("Car Fly", &carfly);
+			ImGui::Checkbox("Rapid Fire", &RapidFire);
+			ImGui::Checkbox("First Person Mode", &first_person);
+			ImGui::Checkbox("infinity ammo", &infammo);
 
-			ImGui::End();
+			ImGui::Checkbox("T pose", &tpose);
+			ImGui::Checkbox("Minigun", &minigun);
+			ImGui::Checkbox("instant reload", &instantreload);
+
+			
 		}
+
+		ImGui::EndChild();
+		ImGui::End();
 	}
 
 	DrawESP();
@@ -2029,7 +2552,6 @@ void xMainLoop()
 		rc.top = xy.y;
 
 		ImGuiIO& io = ImGui::GetIO();
-		io.IniFilename = NULL;
 		io.ImeWindowHandle = hwnd;
 		io.DeltaTime = 1.0f / 60.0f;
 
@@ -2060,11 +2582,6 @@ void xMainLoop()
 			D3dDevice->Reset(&d3dpp);
 		}
 		render();
-		if (Loop == 0) {
-			XorS(base, "Process base address: %p.\n");
-			//printf(base.decrypt(), (void*)base_address);
-		}
-		Loop = Loop + 1;
 	}
 	ImGui_ImplDX9_Shutdown();
 	ImGui_ImplWin32_Shutdown();
@@ -2111,5 +2628,5 @@ void xShutdown()
 	p_Object->Release();
 
 	DestroyWindow(Window);
-	UnregisterClass("Bluestacks", NULL);
+	UnregisterClass("notepad", NULL);
 }
